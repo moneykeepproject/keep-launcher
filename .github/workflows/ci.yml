@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to a PR branch cancels its older run. Runs on main are never cancelled, so every
+# main state that gets a run is checked to the end.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+  TRUNK_VERSION: "0.21.14"
+
+# Self-contained (security-review-1 M9): every job is defined here. Actions are GitHub's own,
+# pinned to the commit of the tag named beside them.
+jobs:
+  # fmt, clippy, tests and the wasm check (`cargo xtask ci`) on Linux; clippy and the tests on
+  # Windows, which is what differs by platform. No macOS on PRs or main: release.yml builds and
+  # checks macOS.
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # egui/winit/wgpu headers. The tray (ksni) and notifications (notify-rust over zbus) are
+      # pure-Rust D-Bus clients, so no GTK, appindicator, xdo or libdbus packages are needed.
+      - name: Install Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy --target wasm32-unknown-unknown
+          rustup default stable
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ci-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain*') }}
+          restore-keys: ci-${{ runner.os }}-
+      - name: cargo xtask ci
+        if: runner.os == 'Linux'
+        run: cargo xtask ci
+      - name: clippy and tests (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          WGPU_BACKEND="${WGPU_BACKEND:-dx12}" cargo test --workspace --locked
+      - name: Cargo.lock is up to date
+        shell: bash
+        run: git diff --exit-code -- Cargo.lock
+
+  # The browser build, as the release makes it (size gate and relative-URL check included), and
+  # clippy for wasm32.
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy --target wasm32-unknown-unknown
+          rustup default stable
+      - name: Install trunk
+        run: |
+          set -euo pipefail
+          curl --proto '=https' -fsSL -o "$RUNNER_TEMP/trunk.tar.gz" \
+            "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz"
+          echo "f2b4680cd239693a646a2795e4633c625328d7b2a044fbe749fa3a2fe9e7036b  $RUNNER_TEMP/trunk.tar.gz" | sha256sum -c -
+          tar -xz -C "$HOME/.cargo/bin" -f "$RUNNER_TEMP/trunk.tar.gz" trunk
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: web-${{ hashFiles('Cargo.lock', 'rust-toolchain*') }}
+          restore-keys: web-
+      - name: clippy (wasm32) and the web package
+        run: |
+          cargo clippy -p keep-launcher-core -p keep-launcher-web --target wasm32-unknown-unknown --locked -- -D warnings
+          packaging/web/package.sh

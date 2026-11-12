@@ -1,0 +1,135 @@
+# Quick static checks for the release pipeline (seconds, no Rust build): workflow syntax,
+# packaging shell/PowerShell scripts, and the Linux desktop/AppStream/Flatpak metadata.
+# Self-contained (security-review-1 M9): no other organisation's workflow or action.
+name: Packaging lint
+
+on:
+  push:
+    branches: [main, release]
+    paths: [".github/workflows/**", "packaging/**", "assets/app-icon/**"]
+  pull_request:
+    paths: [".github/workflows/**", "packaging/**", "assets/app-icon/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: packaging-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Workflow syntax (actionlint), the packaging shell and PowerShell scripts, the AppImage
+  # AppRun, the FreeBSD layout (dry run) and the Linux/Windows/macOS metadata files.
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ACTIONLINT_VERSION: "1.7.12"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck desktop-file-utils appstream libxml2-utils python3-yaml
+          curl --proto '=https' -fsSL -o "$RUNNER_TEMP/actionlint.tar.gz" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum -c -
+          tar -xz -C "$RUNNER_TEMP" -f "$RUNNER_TEMP/actionlint.tar.gz" actionlint
+      - name: actionlint
+        run: '"$RUNNER_TEMP/actionlint" -color'
+      - name: shellcheck
+        run: |
+          mapfile -t files < <(find packaging -type f -name '*.sh')
+          shellcheck "${files[@]}" packaging/linux/AppRun
+      - name: AppImage AppRun desktop integration
+        run: bash packaging/linux/apprun-test.sh
+      - name: FreeBSD package layout (dry run)
+        run: bash packaging/freebsd/package.sh --dry-run
+      - name: PowerShell scripts parse
+        shell: pwsh
+        run: |
+          foreach ($f in Get-ChildItem packaging/windows/*.ps1) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) { $errors | ForEach-Object { Write-Output "::error file=$($f.Name)::$_" }; exit 1 }
+            Write-Output "ok $($f.Name)"
+          }
+          ./packaging/windows/check-icons.ps1
+      - name: XML, desktop entry, AppStream, Flatpak manifests
+        run: |
+          set -euo pipefail
+          xmllint --noout packaging/windows/*.wxs packaging/windows/*.wxl packaging/macos/*.plist* packaging/linux/*.xml*
+          if grep -oE '<Icon Id="[^"]*"' packaging/windows/*.wxs | grep -vE '\.(ico|exe)"$'; then
+            echo "::error::Icon Id must end in .ico or .exe"; exit 1
+          fi
+          if [ -n "$(grep -ohiE '(UpgradeCode|Guid)="[0-9A-F-]{36}"' packaging/windows/*.wxs | cut -d'"' -f2 | sort -f | uniq -di)" ]; then
+            echo "::error::duplicate GUID in the .wxs"; exit 1
+          fi
+          for df in packaging/linux/*.desktop; do desktop-file-validate "$df"; done
+          for mi in packaging/linux/*.metainfo.xml.in; do
+            out="$RUNNER_TEMP/$(basename "$mi" .in)"
+            sed -e 's/@VERSION@/0.0.0/' -e 's/@DATE@/2026-01-01/' "$mi" >"$out"
+            appstreamcli validate --no-net --explain "$out"
+          done
+          python3 - <<'PY'
+          import glob, yaml
+          src = [f for f in glob.glob("packaging/linux/flatpak/*.yml") if not f.endswith(".bundle.yml")]
+          bundle = glob.glob("packaging/linux/flatpak/*.bundle.yml")
+          a, b = yaml.safe_load(open(src[0])), yaml.safe_load(open(bundle[0]))
+          for key in ("runtime", "runtime-version", "sdk", "finish-args"):
+              if key in a and key in b:
+                  assert a[key] == b[key], f"Flatpak manifests disagree on {key}"
+          print("Flatpak manifests ok")
+          PY
+
+  linux-package-metadata:
+    timeout-minutes: 10
+    name: Linux package glibc requirements (no app build)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install package metadata readers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends rpm
+      - name: Install nfpm (SHA256-verified)
+        run: |
+          set -euo pipefail
+          curl --proto '=https' -fsSL -o "$RUNNER_TEMP/nfpm.deb" \
+            "https://github.com/goreleaser/nfpm/releases/download/v2.47.0/nfpm_2.47.0_amd64.deb"
+          echo "3f1cf344bd0b57373ca55636a78c08b0491f7293d609a456a9ac3b0b150fda97  $RUNNER_TEMP/nfpm.deb" | sha256sum -c -
+          sudo dpkg -i "$RUNNER_TEMP/nfpm.deb"
+      - name: Check glibc dependencies in fixture deb and rpm packages
+        run: bash packaging/linux/test-package-metadata.sh
+
+  windows-install-policy:
+    timeout-minutes: 10
+    name: Windows installation policy (no app build)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned packaging toolchain
+        shell: pwsh
+        run: |
+          $tools = Join-Path $env:RUNNER_TEMP 'craft-install-policy-wix'
+          dotnet tool install --tool-path $tools wix --version 5.0.2
+          if ($LASTEXITCODE -ne 0) { throw 'WiX installation failed.' }
+          $tools >> $env:GITHUB_PATH
+          $policy = Get-Content -Raw -LiteralPath packaging/windows/install-policy.json | ConvertFrom-Json
+          foreach ($extension in @($policy.extensions)) {
+            & (Join-Path $tools 'wix.exe') extension add -g "WixToolset.$extension.wixext/5.0.2"
+            if ($LASTEXITCODE -ne 0) { throw "WiX extension $extension installation failed." }
+          }
+      - name: Build and check non-executable installer fixtures
+        shell: pwsh
+        run: ./packaging/windows/test-install-policy.ps1 -OutputDirectory (Join-Path $env:RUNNER_TEMP 'craft-install-policy-tests')

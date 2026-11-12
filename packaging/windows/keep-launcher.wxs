@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MoneyKeep Launcher MSI (WiX Toolset v5: `dotnet tool install -g wix`, plus the UI and Util
+  extensions: `wix extension add -g WixToolset.UI.wixext/5.0.2 WixToolset.Util.wixext/5.0.2`).
+  Built by package.ps1:
+
+    wix build keep-launcher.wxs -arch x64 -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext
+      -culture en-US -loc keep-launcher.en-us.wxl -d Version=1.2.3.1 -d DisplayVersion=1.2.3-rc.1
+      -d BinDir=... -d IconPath=... -d BannerBmp=... -d DialogBmp=... -o out.msi
+
+  Per-user install (no UAC prompt), by default into %LOCALAPPDATA%\Programs\MoneyKeep\Launcher, so
+  the launcher can update itself without elevation, plus a Start Menu shortcut. The shortcut
+  carries the AppUserModelID com.moneykeep.keep-launcher, which Windows needs to show toast
+  notifications from an unpackaged app and to group the taskbar button. No file associations.
+
+  Double-clicked, it opens a setup wizard that names the version: Welcome; a folder page to pick
+  where it goes, with a "Create a desktop shortcut" box; Ready; a progress page; and a Finish page
+  with a ticked "Launch MoneyKeep Launcher" box. There is no licence page (the code is MIT OR
+  Apache-2.0; nothing to accept). The install folder and the desktop-shortcut choice are recorded
+  under HKCU and reused by later versions, so an update (the launcher's own self-update runs this
+  with /passive, which skips the wizard) lands in the same folder and keeps the user's choice; the
+  launcher reads the recorded folder to know it was installed by this MSI.
+
+  Per-user packages can't use a file as a component's KeyPath (ICE38), so each component is
+  keyed on an HKCU value, and the folders we create are removed on uninstall (ICE64).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package
+      Name="MoneyKeep Launcher"
+      Manufacturer="MoneyKeep Project"
+      Version="$(var.Version)"
+      UpgradeCode="21A56014-680F-43C0-BC3A-8976667AEF4F"
+      Scope="perUser"
+      Compressed="yes"
+      Language="1033">
+    <SummaryInformation Description="MoneyKeep Launcher: install and update the MoneyKeep Apps" Manufacturer="MoneyKeep Project" />
+    <!-- Same-version upgrades let successive pre-releases of one X.Y.Z replace each other
+         (package.ps1 turns 1.2.3-rc.1 and 1.2.3-rc.2 into 1.2.3.1 and 1.2.3.2, and Windows
+         Installer compares only the first three parts). -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+        DowngradeErrorMessage="A newer version of MoneyKeep Launcher is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- The Apps & features icon only. MSI caches it under %APPDATA%\Microsoft\Installer\{ProductCode},
+         using its Id as the filename (keep the .exe extension, ICE50). Every update is a major
+         upgrade with a new ProductCode that deletes the old folder, so the shortcuts must not use
+         it: a taskbar pin is a copy of the shortcut, an update never refreshes it, and its icon
+         went blank once the old folder was gone. The shortcuts take the exe's own icon instead
+         (build.rs embeds it), at a path every update keeps. -->
+    <Icon Id="MoneyKeepLauncherIcon.exe" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="MoneyKeepLauncherIcon.exe" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/moneykeepproject/keep-launcher" />
+    <Property Id="ARPURLUPDATEINFO" Value="https://github.com/moneykeepproject/keep-launcher/releases" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/moneykeepproject/keep-launcher/issues" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="LocalProgramsFolder" Name="Programs">
+        <Directory Id="KeepSuiteFolder" Name="MoneyKeep">
+          <Directory Id="INSTALLFOLDER" Name="Launcher" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="DesktopFolder" />
+
+    <!-- An update installs where the user put the previous version (recorded by
+         MoneyKeepLauncherApp below; every version since 0.1.0 records it). -->
+    <Property Id="INSTALLFOLDER" Secure="yes" />
+    <Property Id="PREVIOUSINSTALLFOLDER" Secure="yes">
+      <RegistrySearch Id="PreviousInstallFolder" Root="HKCU" Key="Software\MoneyKeep Project\MoneyKeep Launcher" Name="InstallDir" Type="raw" />
+    </Property>
+    <!-- Versions before 0.1.0-alpha.1 recorded it under the former publisher name
+         ("MoneyKeep Project Inc"): read that key too, so their update lands in the same folder. -->
+    <Property Id="FORMERKEYINSTALLFOLDER" Secure="yes">
+      <RegistrySearch Id="FormerKeyInstallFolder" Root="HKCU" Key="Software\MoneyKeep Project Inc\MoneyKeep Launcher" Name="InstallDir" Type="raw" />
+    </Property>
+    <SetProperty Id="PREVIOUSINSTALLFOLDER" Action="KeepReadFormerLauncherFolder" Value="[FORMERKEYINSTALLFOLDER]"
+        After="AppSearch" Sequence="both" Condition="FORMERKEYINSTALLFOLDER AND NOT PREVIOUSINSTALLFOLDER" />
+    <SetProperty Id="INSTALLFOLDER" Action="KeepRestoreLauncherFolder" Value="[PREVIOUSINSTALLFOLDER]"
+        Before="CostInitialize" Sequence="both" Condition="PREVIOUSINSTALLFOLDER AND NOT INSTALLFOLDER" />
+
+    <!-- The desktop shortcut: the folder page's box sets INSTALLDESKTOPSHORTCUT to 1. It starts
+         ticked on a first install; an update keeps what the user chose last time, and an update
+         from a version that never asked (0.1.0, 0.1.1) adds none. A value given on the command
+         line (msiexec ... INSTALLDESKTOPSHORTCUT=0 or 1) wins. -->
+    <Property Id="PREVIOUSDESKTOPSHORTCUT">
+      <RegistrySearch Id="PreviousDesktopShortcut" Root="HKCU" Key="Software\MoneyKeep Project\MoneyKeep Launcher" Name="DesktopShortcutChoice" Type="raw" />
+    </Property>
+    <Property Id="FORMERKEYDESKTOPSHORTCUT">
+      <RegistrySearch Id="FormerKeyDesktopShortcut" Root="HKCU" Key="Software\MoneyKeep Project Inc\MoneyKeep Launcher" Name="DesktopShortcutChoice" Type="raw" />
+    </Property>
+    <SetProperty Id="PREVIOUSDESKTOPSHORTCUT" Action="KeepReadFormerDesktopShortcut" Value="[FORMERKEYDESKTOPSHORTCUT]"
+        After="AppSearch" Sequence="first" Condition="FORMERKEYDESKTOPSHORTCUT AND NOT PREVIOUSDESKTOPSHORTCUT" />
+    <SetProperty Id="INSTALLDESKTOPSHORTCUT" Value="1" After="KeepReadFormerDesktopShortcut" Sequence="first"
+        Condition="NOT INSTALLDESKTOPSHORTCUT AND ((NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT PREVIOUSDESKTOPSHORTCUT) OR PREVIOUSDESKTOPSHORTCUT = &quot;1&quot;)" />
+    <!-- Recorded as 1 or 0 (an unticked box leaves the property empty), for the next update. -->
+    <SetProperty Id="DESKTOPSHORTCUTCHOICE" Action="RememberNoDesktopShortcut" Value="0" Before="InstallInitialize" Sequence="execute"
+        Condition="NOT (INSTALLDESKTOPSHORTCUT = &quot;1&quot;)" />
+    <SetProperty Id="DESKTOPSHORTCUTCHOICE" Action="RememberDesktopShortcut" Value="1" Before="InstallInitialize" Sequence="execute"
+        Condition="INSTALLDESKTOPSHORTCUT = &quot;1&quot;" />
+
+    <Feature Id="Main" Title="MoneyKeep Launcher" Level="1">
+      <ComponentGroupRef Id="MoneyKeepLauncherFiles" />
+    </Feature>
+
+    <!-- The setup wizard: WixUI_InstallDir without its licence page, and with our folder page
+         (MoneyKeepInstallDirDlg: the stock one plus the desktop-shortcut box) in place of the stock
+         one. A later NewDialog on the same button wins. -->
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <UI>
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="MoneyKeepInstallDirDlg" Order="2" Condition="NOT Installed" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MoneyKeepInstallDirDlg" Order="2" Condition="NOT Installed" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchMoneyKeepLauncher"
+          Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+
+      <Dialog Id="MoneyKeepInstallDirDlg" Width="370" Height="270" Title="!(loc.InstallDirDlg_Title)">
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
+          <!-- As WixUI_InstallDir does for its own folder page: take the folder, check it, go on. -->
+          <Publish Event="SetTargetPath" Value="[WIXUI_INSTALLDIR]" Order="1" />
+          <Publish Event="DoAction" Value="WixUIValidatePath_$(sys.BUILDARCHSHORT)" Order="2" Condition="NOT WIXUI_DONTVALIDATEPATH" />
+          <Publish Event="SpawnDialog" Value="InvalidDirDlg" Order="3" Condition="NOT WIXUI_DONTVALIDATEPATH AND WIXUI_INSTALLDIR_VALID&lt;&gt;&quot;1&quot;" />
+          <Publish Event="NewDialog" Value="VerifyReadyDlg" Order="4" Condition="WIXUI_DONTVALIDATEPATH OR WIXUI_INSTALLDIR_VALID=&quot;1&quot;" />
+        </Control>
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)">
+          <Publish Event="NewDialog" Value="WelcomeDlg" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes" NoPrefix="yes" Text="!(loc.InstallDirDlgDescription)" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="!(loc.InstallDirDlgTitle)" />
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+
+        <Control Id="FolderLabel" Type="Text" X="20" Y="60" Width="290" Height="30" NoPrefix="yes" Text="!(loc.InstallDirDlgFolderLabel)" />
+        <Control Id="Folder" Type="PathEdit" X="20" Y="100" Width="320" Height="18" Property="WIXUI_INSTALLDIR" Indirect="yes" />
+        <Control Id="ChangeFolder" Type="PushButton" X="20" Y="120" Width="56" Height="17" Text="!(loc.InstallDirDlgChange)">
+          <Publish Property="_BrowseProperty" Value="[WIXUI_INSTALLDIR]" Order="1" />
+          <Publish Event="SpawnDialog" Value="BrowseDlg" Order="2" />
+        </Control>
+        <Control Id="PerUserNote" Type="Text" X="20" Y="146" Width="330" Height="24" NoPrefix="yes" Text="!(loc.MoneyKeepInstallDirNote)" />
+
+        <Control Id="DesktopShortcut" Type="CheckBox" X="20" Y="186" Width="330" Height="17" Property="INSTALLDESKTOPSHORTCUT" CheckBoxValue="1" Text="!(loc.MoneyKeepDesktopShortcut)" />
+      </Dialog>
+    </UI>
+    <!-- Our own art, drawn by package.ps1 from the MoneyKeep mark and the MoneyKeep apps' icons. -->
+    <WixVariable Id="WixUIBannerBmp" Value="$(var.BannerBmp)" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(var.DialogBmp)" />
+
+    <!-- The full version (Version is numeric, so it drops a pre-release tag), shown on the wizard's
+         pages through keep-launcher.en-us.wxl. -->
+    <Property Id="MoneyKeepLauncherVersion" Value="$(var.DisplayVersion)" />
+
+    <!-- Finish page: say where to find the launcher, and offer to start it (ticked by default). -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="MoneyKeep Launcher $(var.DisplayVersion) is installed. Start it any time from the Start menu to install and update the MoneyKeep Apps." />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch MoneyKeep Launcher" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[#MoneyKeepLauncherExe]" />
+    <!-- Runs in the wizard's own process, so the launcher starts as the user. -->
+    <CustomAction Id="LaunchMoneyKeepLauncher" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixShellExec" Impersonate="yes" Return="ignore" />
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="MoneyKeepLauncherFiles">
+      <Component Id="MoneyKeepLauncherApp" Directory="INSTALLFOLDER" Guid="0D222BE2-BF1B-43A7-B527-45B82B2DAE91">
+        <File Id="MoneyKeepLauncherNotice" Source="$(var.BinDir)\NOTICE" KeyPath="no" />
+        <File Id="MoneyKeepLauncherThirdPartyLicenses" Source="$(var.BinDir)\THIRD-PARTY-LICENSES.txt" KeyPath="no" />
+        <File Id="MoneyKeepLauncherExe" Source="$(var.BinDir)\keep-launcher.exe" KeyPath="no" />
+        <!-- Read back by the next version's installer and by the launcher (self_update.rs). -->
+        <RegistryValue Root="HKCU" Key="Software\MoneyKeep Project\MoneyKeep Launcher" Name="InstallDir" Value="[INSTALLFOLDER]" Type="string" KeyPath="yes" />
+        <RegistryValue Root="HKCU" Key="Software\MoneyKeep Project\MoneyKeep Launcher" Name="DesktopShortcutChoice" Value="[DESKTOPSHORTCUTCHOICE]" Type="string" />
+        <!-- Win+R "keep-launcher". -->
+        <RegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\keep-launcher.exe" Value="[#MoneyKeepLauncherExe]" Type="string" />
+        <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+        <RemoveFolder Id="RemoveSuiteFolder" Directory="KeepSuiteFolder" On="uninstall" />
+        <RemoveFolder Id="RemoveLocalProgramsFolder" Directory="LocalProgramsFolder" On="uninstall" />
+      </Component>
+
+      <Component Id="MoneyKeepLauncherShortcut" Directory="ProgramMenuFolder" Guid="2BFC5A04-0644-402C-91C8-CD89814B9A5F">
+        <Shortcut Id="StartMenuShortcut" Name="MoneyKeep Launcher"
+            Description="Install and update the MoneyKeep Apps"
+            Target="[#MoneyKeepLauncherExe]" WorkingDirectory="INSTALLFOLDER">
+          <ShortcutProperty Key="System.AppUserModel.ID" Value="com.moneykeep.keep-launcher" />
+        </Shortcut>
+        <RegistryValue Root="HKCU" Key="Software\MoneyKeep Project\MoneyKeep Launcher" Name="StartMenuShortcut" Value="1" Type="integer" KeyPath="yes" />
+      </Component>
+
+      <!-- Only when the folder page's box is ticked; removed on uninstall like everything else. -->
+      <Component Id="MoneyKeepLauncherDesktopShortcut" Directory="DesktopFolder" Guid="F2153E57-8B86-4A02-BA68-6A90F8F77227"
+          Condition="INSTALLDESKTOPSHORTCUT = &quot;1&quot;">
+        <Shortcut Id="DesktopShortcut" Name="MoneyKeep Launcher"
+            Description="Install and update the MoneyKeep Apps"
+            Target="[#MoneyKeepLauncherExe]" WorkingDirectory="INSTALLFOLDER">
+          <ShortcutProperty Key="System.AppUserModel.ID" Value="com.moneykeep.keep-launcher" />
+        </Shortcut>
+        <RegistryValue Root="HKCU" Key="Software\MoneyKeep Project\MoneyKeep Launcher" Name="DesktopShortcut" Value="1" Type="integer" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

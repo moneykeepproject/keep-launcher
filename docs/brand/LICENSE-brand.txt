@@ -1,0 +1,16 @@
+MoneyKeep brand assets: license
+
+The MoneyKeep name, wordmark and calculator mark (the "MoneyKeep Marks"), including every file in
+this directory in every color, size and format, and the renders of the mark in assets/app-icon/,
+are owned by MoneyKeep Project. They are trademarks and are NOT open source. They are not
+covered by MoneyKeep Launcher's MIT OR Apache-2.0 license, and nothing in that license, in NOTICE
+or in any other file of this repository grants any right to them.
+
+MoneyKeep Project permits their use as part of copies of this repository and within MoneyKeep
+Launcher itself, its documentation and its official builds. If you distribute a modified version
+of MoneyKeep Launcher, remove the MoneyKeep Marks from it (or replace them with your own) and don't
+present it as a MoneyKeep product; you may say, in plain text, that it is based on MoneyKeep
+Launcher.
+
+Any other use needs prior written permission from MoneyKeep Project. All other rights are
+reserved.

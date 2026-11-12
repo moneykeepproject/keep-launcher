@@ -1,0 +1,18 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+jiff = { workspace = true }
+semver = { workspace = true }
+# THIRD-PARTY-LICENSES.txt is made from `cargo metadata`'s JSON (security-review-1 M8).
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

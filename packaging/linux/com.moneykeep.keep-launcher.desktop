@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=MoneyKeep Launcher
+GenericName=App Launcher
+Comment=Install, update and launch the MoneyKeep Apps
+Exec=keep-launcher
+TryExec=keep-launcher
+Icon=com.moneykeep.keep-launcher
+Terminal=false
+StartupNotify=true
+StartupWMClass=com.moneykeep.keep-launcher
+Categories=Utility;PackageManager;
+Keywords=moneykeep;finance;money;launcher;installer;updater;calckeep;apps;

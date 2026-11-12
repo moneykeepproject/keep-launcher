@@ -1,0 +1,54 @@
+{
+  "id": "keep-launcher",
+  "name": "MoneyKeep Launcher",
+  "mode": "perUser",
+  "upgradeCode": "21A56014-680F-43C0-BC3A-8976667AEF4F",
+  "sources": [
+    "keep-launcher.wxs"
+  ],
+  "icon": "assets/app-icon/keep-launcher.ico",
+  "localization": [
+    "keep-launcher.en-us.wxl"
+  ],
+  "extensions": [
+    "UI",
+    "Util"
+  ],
+  "payloads": [
+    "NOTICE",
+    "THIRD-PARTY-LICENSES.txt",
+    "keep-launcher.exe"
+  ],
+  "registry": [
+    [
+      "1",
+      "Software\\MoneyKeep Project\\MoneyKeep Launcher",
+      "InstallDir",
+      "[INSTALLFOLDER]"
+    ],
+    [
+      "1",
+      "Software\\MoneyKeep Project\\MoneyKeep Launcher",
+      "DesktopShortcutChoice",
+      "[DESKTOPSHORTCUTCHOICE]"
+    ],
+    [
+      "1",
+      "Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\keep-launcher.exe",
+      "",
+      "[#MoneyKeepLauncherExe]"
+    ],
+    [
+      "1",
+      "Software\\MoneyKeep Project\\MoneyKeep Launcher",
+      "StartMenuShortcut",
+      "#1"
+    ],
+    [
+      "1",
+      "Software\\MoneyKeep Project\\MoneyKeep Launcher",
+      "DesktopShortcut",
+      "#1"
+    ]
+  ]
+}

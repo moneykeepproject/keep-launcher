@@ -1,0 +1,6 @@
+MoneyKeep Launcher app icon (every file in this directory)
+
+These files are the MoneyKeep calculator badge (docs/brand/moneykeep-badge.svg), rendered by
+packaging/icons.sh. The mark is a trademark of MoneyKeep Project. It is NOT open source and is
+NOT covered by MoneyKeep Launcher's MIT or Apache-2.0 license. Its terms are in
+docs/brand/LICENSE-brand.txt.
