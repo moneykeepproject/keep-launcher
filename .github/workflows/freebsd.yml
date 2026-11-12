@@ -51,7 +51,9 @@ jobs:
             . "$HOME/.cargo/env"
             git config --global --add safe.directory "*"
             cargo build --workspace --locked
-            cargo test --workspace --locked
+            # The VM has no GPU adapter (wgpu: "No adapter found"), so the one UI test that renders
+            # pixels is left to Linux and Windows CI.
+            cargo test --workspace --locked -- --skip a_not_installed_card_is_grey_until_the_pointer_is_over_it
             bash packaging/freebsd/package.sh
             tarball=$(ls dist/release/keep-launcher-*-freebsd-x86_64.tar.gz)
             tar -tzf "$tarball" | grep -E '/bin/keep-launcher$'

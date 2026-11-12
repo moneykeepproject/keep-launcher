@@ -54,7 +54,8 @@ pub fn read_dir(dir: &Path) -> Result<Vec<(String, String)>, String> {
             continue;
         }
         let text = std::fs::read_to_string(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-        files.push((name, text));
+        // A Windows checkout (core.autocrlf) has CRLF line endings; the checks read lines as LF.
+        files.push((name, text.replace("\r\n", "\n")));
     }
     files.sort();
     Ok(files)
@@ -327,6 +328,14 @@ jobs:
     steps:
       - run: cargo test
 ";
+
+    // A Windows checkout's CRLF endings read the same as LF.
+    #[test]
+    fn crlf_workflows_read_as_lf() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.yml"), "on:\r\n  push:\r\n").unwrap();
+        assert_eq!(read_dir(dir.path()).unwrap(), [("a.yml".to_owned(), "on:\n  push:\n".to_owned())]);
+    }
 
     // MAC-1: the repository passes …
     #[test]

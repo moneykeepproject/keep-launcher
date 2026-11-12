@@ -141,9 +141,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'WiX installation failed' }
           wix extension add -g "WixToolset.UI.wixext/$env:WIX_VERSION" "WixToolset.Util.wixext/$env:WIX_VERSION"
           if ($LASTEXITCODE -ne 0) { throw 'WiX extension installation failed' }
-      # On a tag push (a release) the build must be signed: a PFX pair, or all six Azure Trusted
-      # Signing values. Only this step and the next read the signing secrets.
-      - name: Require signing secrets for a tagged release
+      # Signing is optional, as in MoneyKeep's release.yml: a PFX pair, or all six Azure Trusted
+      # Signing values. Without them a tagged release is built unsigned and this step says so in a
+      # warning (sign.ps1 warns too). Only this step and the next read the signing secrets.
+      - name: Check the signing secrets for a tagged release
         if: github.event_name == 'push'
         shell: bash
         env:
@@ -161,8 +162,7 @@ jobs:
             [ -n "${!name}" ] || missing="$missing $name"
           done
           if [ -n "$missing" ]; then
-            echo "::error::Windows release builds must be signed: set WINDOWS_CERTIFICATE (and its password) or these Azure Trusted Signing secrets in the release environment:$missing"
-            exit 1
+            echo "::warning::This Windows release is not signed. To sign it, set WINDOWS_CERTIFICATE (and its password) or these Azure Trusted Signing secrets in the release environment:$missing"
           fi
       - name: Build, sign, package
         shell: pwsh
