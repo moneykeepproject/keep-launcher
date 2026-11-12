@@ -8,8 +8,9 @@ use std::time::{Duration, Instant};
 /// A `Command` that won't flash a console window on Windows, and clears AppImage-injected
 /// environment variables that corrupt system helper binaries and external applications.
 pub fn command(program: impl AsRef<std::ffi::OsStr>) -> Command {
-    #[allow(unused_mut)]
+    let program = program.as_ref();
     let mut cmd = Command::new(program);
+    without_ps7_modules(&mut cmd, program);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -19,6 +20,18 @@ pub fn command(program: impl AsRef<std::ffi::OsStr>) -> Command {
     #[cfg(unix)]
     clean_appimage_env(&mut cmd);
     cmd
+}
+
+/// Windows PowerShell starts without the caller's `PSModulePath`. Started from PowerShell 7 (the
+/// launcher run from a pwsh window), it inherits PowerShell 7's module folders, can't load its own
+/// built-in modules and fails on `Start-Process` ("the module could not be loaded"); without the
+/// variable it uses its default folders.
+fn without_ps7_modules(cmd: &mut Command, program: &std::ffi::OsStr) {
+    let text = program.to_string_lossy().to_ascii_lowercase();
+    let name = text.rsplit(['/', '\\']).next().unwrap_or_default();
+    if matches!(name, "powershell" | "powershell.exe") {
+        cmd.env_remove("PSModulePath");
+    }
 }
 
 /// Cleans AppImage runtime environment variables so child processes don't load incompatible
@@ -387,6 +400,18 @@ mod tests {
 #[cfg(test)]
 mod run_tests {
     use super::*;
+
+    /// Windows PowerShell never inherits PowerShell 7's module path; other programs keep it.
+    #[test]
+    fn windows_powershell_starts_without_ps7_modules() {
+        let cleared = |program: &str| command(program).get_envs().any(|(k, v)| k == std::ffi::OsStr::new("PSModulePath") && v.is_none());
+        for program in ["powershell", "powershell.exe", r"C:\Windows\System32\WindowsPowerShell\v1.0\PowerShell.EXE"] {
+            assert!(cleared(program), "{program}");
+        }
+        for program in ["pwsh", "msiexec.exe", "cmd"] {
+            assert!(!cleared(program), "{program}");
+        }
+    }
 
     /// A shell command line, for the platform's shell.
     fn shell(script: &str) -> (&'static str, [&str; 2]) {
