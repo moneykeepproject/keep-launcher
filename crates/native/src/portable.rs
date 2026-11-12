@@ -555,12 +555,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let app = KeepApp::by_id("moneykeep").unwrap();
         let paths = Paths::under(dir.path());
-        let invalid = archive(dir.path(), "invalid-dirs.zip", &[("wrapper/", b""), ("wrapper/moneykeep.exe", b"program"), ("outside/", b"")]);
+        let invalid = archive(dir.path(), "invalid-dirs.zip", &[("wrapper/", b""), ("wrapper/moneykeep-app.exe", b"program"), ("outside/", b"")]);
         let error = install(app, &invalid, "0.12.0", None, &paths, None, false, &mut |_| Ok(())).unwrap_err();
         assert!(error.contains("unsupported directory layout"), "{error}");
         assert!(!paths.apps().join(app.id).exists());
 
-        let valid = archive(dir.path(), "valid-dirs.zip", &[("wrapper/", b""), ("wrapper/moneykeep.exe", b"program")]);
+        let valid = archive(dir.path(), "valid-dirs.zip", &[("wrapper/", b""), ("wrapper/moneykeep-app.exe", b"program")]);
         let record = install(app, &valid, "0.12.0", None, &paths, None, false, &mut |_| Ok(())).unwrap();
         assert!(record.path.exists());
     }
@@ -585,17 +585,17 @@ mod tests {
                 "app.zip",
                 &[
                     (&format!("{prefix}moneykeep-cli.exe"), b"cli"),
-                    (&format!("{prefix}MoneyKeep.exe"), version.as_bytes()),
+                    (&format!("{prefix}MoneyKeep-App.exe"), version.as_bytes()),
                     (&format!("{prefix}lib/runtime.dll"), b"library"),
                     (&format!("{prefix}LICENSE-MIT"), b"license"),
                 ],
             );
             let record = install(app, &zip, version, previous.as_ref(), &paths, Some(&parent), false, &mut |_| Ok(())).unwrap();
             let root = std::fs::canonicalize(parent.join(app.id)).unwrap();
-            assert_eq!(record.path, root.join("MoneyKeep.exe"));
+            assert_eq!(record.path, root.join("MoneyKeep-App.exe"));
             assert_eq!(std::fs::read(&record.path).unwrap(), version.as_bytes());
             assert_eq!(std::fs::read(root.join("lib/runtime.dll")).unwrap(), b"library");
-            assert_eq!(record.files, ["moneykeep-cli.exe", "MoneyKeep.exe", "lib/runtime.dll", "LICENSE-MIT"].map(|p| root.join(p)));
+            assert_eq!(record.files, ["moneykeep-cli.exe", "MoneyKeep-App.exe", "lib/runtime.dll", "LICENSE-MIT"].map(|p| root.join(p)));
             let personal = root.join("settings.json");
             if previous.is_some() {
                 assert_eq!(std::fs::read(&personal).unwrap(), b"personal");
@@ -618,10 +618,10 @@ mod tests {
         for names in [
             vec![],
             vec!["package/moneykeep-cli.exe"],
-            vec!["package/bin/moneykeep.exe"],
-            vec!["one/moneykeep.exe", "two/moneykeep.exe"],
-            vec!["package/moneykeep.exe", "outside.txt"],
-            vec!["package/moneykeep.exe", "other/runtime.dll"],
+            vec!["package/bin/moneykeep-app.exe"],
+            vec!["one/moneykeep-app.exe", "two/moneykeep-app.exe"],
+            vec!["package/moneykeep-app.exe", "outside.txt"],
+            vec!["package/moneykeep-app.exe", "other/runtime.dll"],
         ] {
             let files: Vec<_> = names.iter().map(|name| (*name, b"content".as_slice())).collect();
             let zip = archive(dir.path(), "invalid.zip", &files);
@@ -635,14 +635,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let app = KeepApp::by_id("moneykeep").unwrap();
         let paths = Paths::under(dir.path());
-        let old = archive(dir.path(), "old.zip", &[("moneykeep.exe", b"old"), ("lib.dll", b"library")]);
+        let old = archive(dir.path(), "old.zip", &[("moneykeep-app.exe", b"old"), ("lib.dll", b"library")]);
         let record = install(app, &old, "0.11.0", None, &paths, None, false, &mut |_| Ok(())).unwrap();
         let personal = paths.apps().join("moneykeep/settings.json");
         std::fs::write(&personal, b"keep").unwrap();
-        let collision = archive(dir.path(), "collision.zip", &[("package/moneykeep.exe", b"new"), ("package/settings.json", b"overwrite")]);
+        let collision = archive(dir.path(), "collision.zip", &[("package/moneykeep-app.exe", b"new"), ("package/settings.json", b"overwrite")]);
         let error = install(app, &collision, "0.12.0", Some(&record), &paths, None, false, &mut |_| Ok(())).unwrap_err();
         assert_eq!(error, "The installation would overwrite an unrecorded file.");
-        let next = archive(dir.path(), "next.zip", &[("package/moneykeep.exe", b"new"), ("package/new.dll", b"new")]);
+        let next = archive(dir.path(), "next.zip", &[("package/moneykeep-app.exe", b"new"), ("package/new.dll", b"new")]);
         let error = install(app, &next, "0.12.0", Some(&record), &paths, None, false, &mut |_| Err("manifest disk full".into())).unwrap_err();
         assert_eq!(error, "manifest disk full");
         assert_eq!(std::fs::read(record.path).unwrap(), b"old");
@@ -667,7 +667,7 @@ mod tests {
 
         let app = KeepApp::by_id("moneykeep").unwrap();
         let paths = Paths::under(&home);
-        let zip = archive(dir.path(), "app.zip", &[("moneykeep.exe", b"program"), ("lib/runtime.dll", b"library")]);
+        let zip = archive(dir.path(), "app.zip", &[("moneykeep-app.exe", b"program"), ("lib/runtime.dll", b"library")]);
         let record = install(app, &zip, "0.5.0", None, &paths, Some(&home), false, &mut |_| Ok(())).unwrap();
         assert_eq!(std::fs::read(&record.path).unwrap(), b"program");
 
@@ -706,22 +706,22 @@ mod tests {
         junction(&link, &first);
         let alias_root = link.join("moneykeep");
         std::fs::create_dir(&alias_root).unwrap();
-        std::fs::write(alias_root.join("moneykeep.exe"), b"old program").unwrap();
+        std::fs::write(alias_root.join("moneykeep-app.exe"), b"old program").unwrap();
         let record = Record {
             version: "0.5.0".into(),
             kind: PackageKind::PortableZip,
-            path: alias_root.join("moneykeep.exe"),
+            path: alias_root.join("moneykeep-app.exe"),
             installed_at: 0,
-            files: vec![alias_root.join("moneykeep.exe")],
+            files: vec![alias_root.join("moneykeep-app.exe")],
             needs_root: false,
         };
         std::process::Command::new("cmd.exe").args(["/C", "rmdir"]).arg(&link).status().unwrap();
         junction(&link, &second);
         let foreign_root = link.join("moneykeep");
         std::fs::create_dir(&foreign_root).unwrap();
-        std::fs::write(foreign_root.join("moneykeep.exe"), b"foreign program").unwrap();
+        std::fs::write(foreign_root.join("moneykeep-app.exe"), b"foreign program").unwrap();
         assert!(remove(KeepApp::by_id("moneykeep").unwrap(), &record).is_err());
-        assert_eq!(std::fs::read(foreign_root.join("moneykeep.exe")).unwrap(), b"foreign program");
+        assert_eq!(std::fs::read(foreign_root.join("moneykeep-app.exe")).unwrap(), b"foreign program");
     }
 
     #[test]
@@ -730,12 +730,12 @@ mod tests {
         let app = KeepApp::by_id("moneykeep").unwrap();
         let paths = Paths::under(dir.path());
         let parent = dir.path().join("My Tools");
-        let first = archive(dir.path(), "first.zip", &[("moneykeep.exe", b"first"), ("obsolete.dll", b"old")]);
+        let first = archive(dir.path(), "first.zip", &[("moneykeep-app.exe", b"first"), ("obsolete.dll", b"old")]);
         let mut record = install(app, &first, "0.5.0", None, &paths, Some(&parent), false, &mut |_| Ok(())).unwrap();
         let personal = parent.join("moneykeep").join("settings.json");
         std::fs::write(&personal, b"personal").unwrap();
         for (version, exe) in [("0.6.0", b"new".as_slice()), ("0.4.0", b"older".as_slice())] {
-            let executable = if version == "0.4.0" { "MoneyKeep.exe" } else { "moneykeep.exe" };
+            let executable = if version == "0.4.0" { "MoneyKeep-App.exe" } else { "moneykeep-app.exe" };
             let package = archive(dir.path(), "next.zip", &[(executable, exe), ("lib/runtime.dll", b"dll")]);
             record = install(app, &package, version, Some(&record), &paths, Some(&dir.path().join("Ignored")), false, &mut |_| Ok(())).unwrap();
             assert_eq!(std::fs::read(&record.path).unwrap(), exe);
@@ -760,9 +760,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let app = KeepApp::by_id("moneykeep").unwrap();
         let paths = Paths::under(dir.path());
-        let old = archive(dir.path(), "old.zip", &[("moneykeep.exe", b"old"), ("lib.dll", b"library")]);
+        let old = archive(dir.path(), "old.zip", &[("moneykeep-app.exe", b"old"), ("lib.dll", b"library")]);
         let record = install(app, &old, "0.5.0", None, &paths, None, false, &mut |_| Ok(())).unwrap();
-        let next = archive(dir.path(), "next.zip", &[("moneykeep.exe", b"new"), ("new.dll", b"new")]);
+        let next = archive(dir.path(), "next.zip", &[("moneykeep-app.exe", b"new"), ("new.dll", b"new")]);
         let result = install(app, &next, "0.6.0", Some(&record), &paths, None, false, &mut |_| Err("manifest disk full".into()));
         assert_eq!(result.unwrap_err(), "manifest disk full");
         assert_eq!(std::fs::read(record.path).unwrap(), b"old");
@@ -775,11 +775,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let app = KeepApp::by_id("moneykeep").unwrap();
         let paths = Paths::under(dir.path());
-        let old = archive(dir.path(), "old.zip", &[("moneykeep.exe", b"old")]);
+        let old = archive(dir.path(), "old.zip", &[("moneykeep-app.exe", b"old")]);
         let record = install(app, &old, "0.5.0", None, &paths, None, false, &mut |_| Ok(())).unwrap();
         let personal = paths.apps().join("moneykeep/settings.json");
         std::fs::write(&personal, b"keep").unwrap();
-        let next = archive(dir.path(), "next.zip", &[("moneykeep.exe", b"new"), ("settings.json", b"overwrite")]);
+        let next = archive(dir.path(), "next.zip", &[("moneykeep-app.exe", b"new"), ("settings.json", b"overwrite")]);
         assert!(install(app, &next, "0.6.0", Some(&record), &paths, None, false, &mut |_| Ok(())).is_err());
         assert_eq!(std::fs::read(record.path).unwrap(), b"old");
         assert_eq!(std::fs::read(personal).unwrap(), b"keep");
@@ -792,13 +792,13 @@ mod tests {
         let paths = Paths::under(dir.path());
         let folder = paths.apps().join("moneykeep");
         std::fs::create_dir_all(&folder).unwrap();
-        std::fs::write(folder.join("moneykeep.exe"), b"theirs").unwrap();
+        std::fs::write(folder.join("moneykeep-app.exe"), b"theirs").unwrap();
         std::fs::write(folder.join("notes.txt"), b"keep").unwrap();
-        let zip = archive(dir.path(), "new.zip", &[("moneykeep.exe", b"new")]);
+        let zip = archive(dir.path(), "new.zip", &[("moneykeep-app.exe", b"new")]);
         assert!(install(app, &zip, "0.5.0", None, &paths, None, false, &mut |_| Ok(())).is_err());
-        assert_eq!(std::fs::read(folder.join("moneykeep.exe")).unwrap(), b"theirs");
+        assert_eq!(std::fs::read(folder.join("moneykeep-app.exe")).unwrap(), b"theirs");
         install(app, &zip, "0.5.0", None, &paths, None, true, &mut |_| Ok(())).unwrap();
-        assert_eq!(std::fs::read(folder.join("moneykeep.exe")).unwrap(), b"new");
+        assert_eq!(std::fs::read(folder.join("moneykeep-app.exe")).unwrap(), b"new");
         assert_eq!(std::fs::read(folder.join("notes.txt")).unwrap(), b"keep");
     }
 
@@ -811,13 +811,13 @@ mod tests {
             dir.path(),
             "release.zip",
             &[
-                ("moneykeep-0.6.1-windows-x64-portable/moneykeep.exe", b"program"),
+                ("moneykeep-0.6.1-windows-x64-portable/moneykeep-app.exe", b"program"),
                 ("moneykeep-0.6.1-windows-x64-portable/portable.txt", b""),
                 ("moneykeep-0.6.1-windows-x64-portable/lib/runtime.dll", b"library"),
             ],
         );
         let record = install(app, &zip, "0.6.1", None, &paths, None, false, &mut |_| Ok(())).unwrap();
-        assert_eq!(record.path.file_name().unwrap(), "moneykeep.exe");
+        assert_eq!(record.path.file_name().unwrap(), "moneykeep-app.exe");
         assert_eq!(record.path.parent().unwrap().file_name().unwrap(), "moneykeep");
         assert_eq!(std::fs::read(&record.path).unwrap(), b"program");
         assert_eq!(std::fs::read(paths.apps().join("moneykeep/lib/runtime.dll")).unwrap(), b"library");
@@ -832,12 +832,12 @@ mod tests {
         let app = KeepApp::by_id("moneykeep").unwrap();
         let paths = Paths::under(dir.path());
         for (name, entries) in [
-            ("mixed.zip", vec![("package/moneykeep.exe", b"program".as_slice()), ("another/readme.txt", b"other".as_slice())]),
-            ("nested.zip", vec![("wrapper/inner/moneykeep.exe", b"program".as_slice())]),
+            ("mixed.zip", vec![("package/moneykeep-app.exe", b"program".as_slice()), ("another/readme.txt", b"other".as_slice())]),
+            ("nested.zip", vec![("wrapper/inner/moneykeep-app.exe", b"program".as_slice())]),
         ] {
             let zip = archive(dir.path(), name, &entries);
             assert!(install(app, &zip, "0.6.1", None, &paths, None, false, &mut |_| Ok(())).is_err(), "{name}");
-            assert!(!paths.apps().join("moneykeep/moneykeep.exe").exists());
+            assert!(!paths.apps().join("moneykeep/moneykeep-app.exe").exists());
         }
     }
 
@@ -847,7 +847,7 @@ mod tests {
         for (name, files) in [
             ("traversal.zip", vec![("../escape.exe", b"bad".as_slice())]),
             ("colon.zip", vec![("data:stream", b"bad".as_slice())]),
-            ("duplicate.zip", vec![("MoneyKeep.exe", b"one".as_slice()), ("moneykeep.exe", b"two".as_slice())]),
+            ("duplicate.zip", vec![("MoneyKeep-App.exe", b"one".as_slice()), ("moneykeep-app.exe", b"two".as_slice())]),
         ] {
             let zip = archive(dir.path(), name, &files);
             let output = dir.path().join(name.replace('.', "-"));
