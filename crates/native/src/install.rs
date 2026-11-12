@@ -2296,7 +2296,7 @@ pub mod windows {
             log::info!("{}: running its uninstaller", app.name);
             setup::explain_uninstall(app.name, run_elevated(Path::new(program), arguments)?)?;
             for _ in 0..240 {
-                if !crate::detect::windows::setup_installs(app).iter().any(|entry| ours(entry)) {
+                if !crate::detect::windows::setup_installs(app).iter().any(&ours) {
                     return Ok(());
                 }
                 std::thread::sleep(std::time::Duration::from_millis(500));
