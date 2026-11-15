@@ -41,6 +41,11 @@ For what it does do, see the [release notes](release-notes/0.1.1.md).
 
 ## Everywhere
 
+- **MoneyKeep Launcher 0.1.0 and 0.1.1 can't update themselves.** When they offer a
+  new version, **Install** fails with an error that names another product's launcher.
+  Download the new version from the release page and install it over the old one, once:
+  from 0.1.2 on, the launcher updates itself (except on a Mac, until it has a Developer
+  ID, and on FreeBSD, where it links to the download instead).
 - **The web version only lists the apps and their downloads.** It can't install,
   update or open anything.
 - **The launcher talks to GitHub directly** to find releases, so it needs to reach

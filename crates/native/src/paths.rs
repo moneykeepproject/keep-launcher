@@ -16,9 +16,23 @@ const DIR: &str = if cfg!(any(target_os = "macos", target_os = "windows")) { "Mo
 
 impl Paths {
     pub fn new() -> Result<Self, String> {
-        if let Some(root) = portable_root() {
-            return Ok(Self::under(&root));
+        match std::env::current_exe() {
+            Ok(exe) => Self::for_exe(&exe),
+            Err(_) => Self::per_user(),
         }
+    }
+
+    /// The folders of the launcher whose executable is `exe`: `MoneyKeepLauncherData` beside a
+    /// portable copy, else the per-user ones. The Windows update helper, a copy of the launcher
+    /// in the cache, finds the installed copy's folders this way.
+    pub fn for_exe(exe: &std::path::Path) -> Result<Self, String> {
+        match portable_root_of(exe) {
+            Some(root) => Ok(Self::under(&root)),
+            None => Self::per_user(),
+        }
+    }
+
+    fn per_user() -> Result<Self, String> {
         let data = dirs::data_local_dir().ok_or("no per-user data folder on this system")?.join(DIR);
         let cache = dirs::cache_dir().ok_or("no per-user cache folder on this system")?.join(DIR);
         Ok(Self { data, cache })
@@ -90,7 +104,11 @@ pub fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> 
 /// Portable mode: a `portable.txt` beside the executable keeps everything in
 /// `MoneyKeepLauncherData` next to it (the Windows portable zip ships one).
 pub fn portable_root() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
+    portable_root_of(&std::env::current_exe().ok()?)
+}
+
+/// [`portable_root`] for the launcher at `exe`.
+fn portable_root_of(exe: &std::path::Path) -> Option<PathBuf> {
     let dir = exe.parent()?;
     dir.join("portable.txt").is_file().then(|| dir.join("MoneyKeepLauncherData"))
 }
@@ -98,6 +116,17 @@ pub fn portable_root() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_portable_copy_keeps_its_folders_beside_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("keep-launcher.exe");
+        assert!(portable_root_of(&exe).is_none());
+        std::fs::write(dir.path().join("portable.txt"), "").unwrap();
+        let paths = Paths::for_exe(&exe).unwrap();
+        assert_eq!(paths.data, dir.path().join("MoneyKeepLauncherData").join("data"));
+        assert_eq!(paths.cache, dir.path().join("MoneyKeepLauncherData").join("cache"));
+    }
 
     #[test]
     fn atomic_write_does_not_overwrite_an_unrelated_temporary_file() {
