@@ -133,7 +133,7 @@ portable zip's executable) and keeps the previous two runs as `keep-launcher.1.l
 
 Download the build for your computer from the newest release on the [releases page](https://github.com/moneykeepproject/keep-launcher/releases). Every release has a `SHA256SUMS.txt` to check the files against. `<ver>` is the version number, for example `0.1.0`.
 
-Version 0.1.1: [release notes](docs/release-notes/0.1.1.md) · [known limits](docs/known-limits.md).
+Version 0.1.2: [release notes](docs/release-notes/0.1.2.md) · [known limits](docs/known-limits.md).
 
 **Windows** (10 and 11)
 

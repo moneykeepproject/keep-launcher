@@ -175,10 +175,12 @@ impl NativeBackend {
             pictures_busy: Mutex::new(std::collections::HashSet::new()),
             last_check: Mutex::new(None),
         });
-        let pins = craft_update::pins::Pins::default_path();
+        let pins = crate::pins::default_path();
         if let Some(path) = &pins {
             crate::pins::prepare_folder(path);
         }
+        let ours: Vec<&str> = SUITE.iter().chain(std::iter::once(&LAUNCHER)).flat_map(|app| app.stems()).collect();
+        crate::pins::retire_former_file(&ours);
         let backend = Self { shared, paths, http, source, platform: native_platform(), pins };
         backend.replay_cache();
         backend.detect_all();

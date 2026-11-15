@@ -1,5 +1,6 @@
-//! Keeps the shared version-choice file ([`craft_update::pins`]) in step with the launcher's
-//! settings, so an app's own update check knows when the launcher keeps it on another version.
+//! Keeps the shared version-choice file in step with the launcher's settings, so an app's own
+//! update check knows when the launcher keeps it on another version. The file's format is
+//! craft-update's ([`craft_update::pins::Pins`]); its place is MoneyKeep's own ([`default_path`]).
 //!
 //! Invariants:
 //! - The launcher's settings are the source of truth for the apps it lists: an app absent from
@@ -8,10 +9,97 @@
 //! - The file is written only when something changed.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use craft_update::pins::{Pins, VersionTrack as SharedTrack};
 use keep_launcher_core::protocol::VersionTrack;
+
+/// Names a file to use in place of the default (absolute paths only). The launcher passes it to
+/// every app it starts, so an app whose home is redirected (tarball installs on Linux) still finds
+/// the real file.
+pub const PATH_ENV: &str = "KEEP_VERSIONS_FILE";
+
+/// The folder, under the host's per-user data folder, that holds the file. The Flatpak manifests
+/// grant exactly this folder (`--filesystem=xdg-data/MoneyKeep/versions:create`); the two change
+/// together.
+const FOLDER: [&str; 2] = ["MoneyKeep", "versions"];
+
+/// Where MoneyKeep Launcher 0.1.0 and 0.1.1 wrote the file: the upstream launcher's folder, which
+/// a copy of that launcher on the same machine also uses. See [`retire_former_file`].
+const FORMER_FOLDER: [&str; 2] = ["ArtCraft", "versions"];
+
+const FILE: &str = "versions.json";
+
+/// The shared file: `MoneyKeep/versions/versions.json` in the host's per-user data folder
+/// (`%LOCALAPPDATA%`, `~/Library/Application Support`, `$XDG_DATA_HOME` or `~/.local/share`), or
+/// the one [`PATH_ENV`] names.
+pub fn default_path() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os(PATH_ENV).map(PathBuf::from).filter(|p| p.is_absolute()) {
+        return Some(path);
+    }
+    host_data_local_dir().map(|dir| in_folder(&dir, FOLDER))
+}
+
+fn in_folder(data: &Path, folder: [&str; 2]) -> PathBuf {
+    data.join(folder[0]).join(folder[1]).join(FILE)
+}
+
+/// The host's per-user data folder, also from inside a Flatpak, where `XDG_DATA_HOME` points into
+/// the sandbox (`~/.var/app/<id>/data`).
+fn host_data_local_dir() -> Option<PathBuf> {
+    let absolute = |name: &str| std::env::var_os(name).map(PathBuf::from).filter(|p| p.is_absolute());
+    pick_host_data_dir(Path::new("/.flatpak-info").exists(), absolute("HOST_XDG_DATA_HOME"), dirs::home_dir(), dirs::data_local_dir())
+}
+
+/// [`host_data_local_dir`] with its inputs passed in, so every CI OS can test the Flatpak case.
+fn pick_host_data_dir(in_flatpak: bool, host_xdg: Option<PathBuf>, home: Option<PathBuf>, local: Option<PathBuf>) -> Option<PathBuf> {
+    if in_flatpak {
+        return host_xdg.or_else(|| home.map(|h| h.join(".local").join("share")));
+    }
+    local
+}
+
+/// Takes MoneyKeep's entries (`ids`) out of the file 0.1.0 and 0.1.1 wrote in the upstream
+/// launcher's folder. That file may also belong to a copy of the upstream launcher, so its other
+/// entries stay; the file goes only when nothing else is left in it, and its folders only when
+/// they are empty. Best effort: a failure is logged and changes nothing else.
+pub fn retire_former_file(ids: &[&str]) {
+    if let Some(dir) = host_data_local_dir()
+        && let Err(e) = retire_in(&dir, ids)
+    {
+        log::warn!("couldn't tidy the old version-choice file ({e})");
+    }
+}
+
+fn retire_in(data: &Path, ids: &[&str]) -> Result<(), String> {
+    let path = in_folder(data, FORMER_FOLDER);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    // A file this launcher can't read is left alone: it isn't ours to repair.
+    let Ok(mut file) = serde_json::from_str::<serde_json::Value>(&text) else { return Ok(()) };
+    let Some(apps) = file.get_mut("apps").and_then(serde_json::Value::as_object_mut) else { return Ok(()) };
+    let before = apps.len();
+    apps.retain(|id, _| !ids.contains(&id.as_str()));
+    if apps.len() == before {
+        return Ok(());
+    }
+    if apps.is_empty() && file.as_object().is_some_and(|o| o.len() == 1) {
+        std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        // Only empty folders go: `remove_dir` refuses any other.
+        let versions = data.join(FORMER_FOLDER[0]).join(FORMER_FOLDER[1]);
+        let _ = std::fs::remove_dir(&versions);
+        let _ = std::fs::remove_dir(data.join(FORMER_FOLDER[0]));
+        log::info!("removed the old version-choice file {}", path.display());
+        return Ok(());
+    }
+    let text = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
+    crate::paths::write_atomic(&path, text.as_bytes())?;
+    log::info!("took MoneyKeep's entries out of {}", path.display());
+    Ok(())
+}
 
 fn shared(track: &VersionTrack) -> SharedTrack {
     match track {
@@ -62,6 +150,76 @@ mod tests {
 
     fn versions(entries: &[(&str, VersionTrack)]) -> BTreeMap<String, VersionTrack> {
         entries.iter().map(|(id, t)| (id.to_string(), t.clone())).collect()
+    }
+
+    #[test]
+    fn the_file_lives_in_moneykeeps_own_folder() {
+        let data = Path::new("/data");
+        assert_eq!(in_folder(data, FOLDER), Path::new("/data/MoneyKeep/versions/versions.json"));
+        let local = Some(PathBuf::from("/home/a/.local/share"));
+        assert_eq!(pick_host_data_dir(false, None, None, local.clone()), local);
+        let host = Some(PathBuf::from("/home/a/custom-data"));
+        assert_eq!(pick_host_data_dir(true, host.clone(), Some(PathBuf::from("/home/a")), None), host);
+        assert_eq!(pick_host_data_dir(true, None, Some(PathBuf::from("/home/a")), None), Some(PathBuf::from("/home/a/.local/share")));
+        if std::env::var_os(PATH_ENV).is_none() {
+            assert!(default_path().is_none_or(|p| p.ends_with("MoneyKeep/versions/versions.json")));
+        }
+    }
+
+    #[test]
+    fn the_flatpak_manifests_grant_the_folder() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging/linux/flatpak");
+        let grant = format!("--filesystem=xdg-data/{}/{}:create", FOLDER[0], FOLDER[1]);
+        for name in ["com.moneykeep.keep-launcher.yml", "com.moneykeep.keep-launcher.bundle.yml"] {
+            let text = std::fs::read_to_string(root.join(name)).unwrap();
+            assert!(text.contains(&grant), "{name} doesn't grant {grant}");
+        }
+    }
+
+    #[test]
+    fn the_old_file_loses_only_moneykeeps_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = in_folder(dir.path(), FORMER_FOLDER);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"apps": {"moneykeep": "Nightly", "photocraft": {"Pinned": "v1.0.0"}}}"#).unwrap();
+        retire_in(dir.path(), &["moneykeep", "calckeep"]).unwrap();
+        let pins = Pins::load(&path);
+        assert_eq!(pins.choice("moneykeep"), Choice::Stable);
+        assert_eq!(pins.choice("photocraft"), Choice::Managed(SharedTrack::Pinned("v1.0.0".into())));
+        // Nothing of ours left: nothing changes.
+        let text = std::fs::read_to_string(&path).unwrap();
+        retire_in(dir.path(), &["moneykeep"]).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+    }
+
+    #[test]
+    fn the_old_file_and_its_empty_folders_go_when_only_moneykeep_used_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = in_folder(dir.path(), FORMER_FOLDER);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"apps": {"moneykeep": "Nightly", "groupkeep": {"Pinned": "v0.1.0"}}}"#).unwrap();
+        retire_in(dir.path(), &["moneykeep", "groupkeep"]).unwrap();
+        assert!(!path.exists());
+        assert!(!dir.path().join(FORMER_FOLDER[0]).exists());
+
+        // Another program's files keep the folder.
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(dir.path().join(FORMER_FOLDER[0]).join("settings.json"), "{}").unwrap();
+        std::fs::write(&path, r#"{"apps": {"moneykeep": "Nightly"}}"#).unwrap();
+        retire_in(dir.path(), &["moneykeep"]).unwrap();
+        assert!(!path.exists());
+        assert!(dir.path().join(FORMER_FOLDER[0]).join("settings.json").exists());
+    }
+
+    #[test]
+    fn an_unreadable_or_missing_old_file_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        retire_in(dir.path(), &["moneykeep"]).unwrap();
+        let path = in_folder(dir.path(), FORMER_FOLDER);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "not json").unwrap();
+        retire_in(dir.path(), &["moneykeep"]).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "not json");
     }
 
     #[test]

@@ -785,11 +785,11 @@ fn remove_appimage(app: &KeepApp, path: &Path, record: Option<&Record>) -> Resul
 pub fn launch(app: &KeepApp, installed: &Installed, paths: &Paths) -> Result<(), String> {
     let _ = paths;
     let path = Path::new(&installed.location);
-    // Every app is told where the shared version-choice file is (see `craft_update::pins`), so
-    // it finds it even when its own data folder points elsewhere: a redirected home, a sandbox,
-    // or a launcher whose data folder moved.
-    let pins = craft_update::pins::Pins::default_path();
-    let env: Vec<(&str, &std::ffi::OsStr)> = pins.iter().map(|p| (craft_update::pins::PATH_ENV, p.as_os_str())).collect();
+    // Every app is told where the shared version-choice file is (see `crate::pins`), so it finds
+    // it even when its own data folder points elsewhere: a redirected home, a sandbox, or a
+    // launcher whose data folder moved.
+    let pins = crate::pins::default_path();
+    let env: Vec<(&str, &std::ffi::OsStr)> = pins.iter().map(|p| (crate::pins::PATH_ENV, p.as_os_str())).collect();
     match installed.source {
         InstallSource::Flatpak => {
             let mut cmd = process::flatpak_command();

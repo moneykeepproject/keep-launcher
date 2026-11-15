@@ -1058,10 +1058,18 @@ mod tests {
     }
 
     /// Nothing in this crate may describe the launcher with another product's identity again
-    /// (0.1.0 and 0.1.1 updated "themselves" as ArtCraft Launcher).
+    /// (0.1.0 and 0.1.1 updated "themselves" as ArtCraft Launcher, and kept the version choices in
+    /// the upstream launcher's folder).
     #[test]
     fn no_code_names_another_launcher() {
-        let forbidden = [concat!("craft_update::", "suite"), concat!("craft_update::", "self_update"), concat!("artcraft", "-launcher")];
+        let forbidden = [
+            concat!("craft_update::", "suite"),
+            concat!("craft_update::", "self_update"),
+            concat!("artcraft", "-launcher"),
+            // The upstream folder for the version-choice file (see `pins`).
+            concat!("Pins::", "default_path"),
+            concat!("craft_update::pins::", "PATH_ENV"),
+        ];
         let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut stack = vec![src];
         while let Some(dir) = stack.pop() {
