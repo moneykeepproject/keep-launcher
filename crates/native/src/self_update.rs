@@ -26,7 +26,7 @@
 //! decision, 2026-11-14). Once this copy is signed, every file the Windows update starts must be
 //! signed by the same publisher.
 //!
-//! Until 0.1.2 this was delegated to craft-update's self-update, which only knows the upstream
+//! Until 0.1.2 this was delegated to the upstream craft-libs self-update, which only knows the upstream
 //! launcher (its release files, registry keys, publisher and bundle id): MoneyKeep Launcher 0.1.0
 //! and 0.1.1 couldn't update themselves for that reason.
 
@@ -1062,14 +1062,9 @@ mod tests {
     /// the upstream launcher's folder).
     #[test]
     fn no_code_names_another_launcher() {
-        let forbidden = [
-            concat!("craft_update::", "suite"),
-            concat!("craft_update::", "self_update"),
-            concat!("artcraft", "-launcher"),
-            // The upstream folder for the version-choice file (see `pins`).
-            concat!("Pins::", "default_path"),
-            concat!("craft_update::pins::", "PATH_ENV"),
-        ];
+        // craft-update is no longer a dependency (0.1.2): its self-update, app suite and file
+        // locations are the upstream launcher's.
+        let forbidden = [concat!("craft", "_update"), concat!("artcraft", "-launcher")];
         let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut stack = vec![src];
         while let Some(dir) = stack.pop() {

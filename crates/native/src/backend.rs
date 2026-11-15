@@ -1969,11 +1969,11 @@ mod tests {
         let mut options = BackendOptions::default();
         options.versions.insert("ledgerkeep".into(), VersionTrack::Pinned("v0.13.0".into()));
         backend.send(Command::Configure(options));
-        let pins = craft_update::pins::Pins::load(&dir.path().join("versions.json"));
-        assert_eq!(pins.track("ledgerkeep"), Some(craft_update::pins::VersionTrack::Pinned("v0.13.0".into())));
+        let pins = crate::pins::Pins::load(&dir.path().join("versions.json"));
+        assert_eq!(pins.track("ledgerkeep"), Some(crate::pins::SharedTrack::Pinned("v0.13.0".into())));
         backend.send(Command::Configure(BackendOptions::default()));
-        let pins = craft_update::pins::Pins::load(&dir.path().join("versions.json"));
-        assert_eq!(pins.choice("ledgerkeep"), craft_update::pins::Choice::Stable);
+        let pins = crate::pins::Pins::load(&dir.path().join("versions.json"));
+        assert_eq!(pins.choice("ledgerkeep"), crate::pins::Choice::Stable);
     }
 
     #[test]

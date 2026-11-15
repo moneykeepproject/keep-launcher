@@ -18,7 +18,6 @@ local-mirror = []
 
 [dependencies]
 keep-launcher-core = { workspace = true }
-craft-update = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }

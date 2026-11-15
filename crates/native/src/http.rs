@@ -421,9 +421,34 @@ pub enum Transfer {
     },
 }
 
-/// Asks a running download to pause (keeping its partial file) or cancel (deleting it). Shared with
-/// `craft_update`, so a self-update sees the same pause and cancel.
-pub use craft_update::Stop;
+/// Asks a running download to pause (keeping its partial file) or cancel (deleting it).
+#[derive(Debug, Default)]
+pub struct Stop(std::sync::atomic::AtomicU8);
+
+impl Stop {
+    const RUN: u8 = 0;
+    const PAUSE: u8 = 1;
+    const CANCEL: u8 = 2;
+
+    /// Pauses a running job; a cancelled one stays cancelled.
+    pub fn pause(&self) {
+        use std::sync::atomic::Ordering;
+        let _ = self.0.compare_exchange(Self::RUN, Self::PAUSE, Ordering::SeqCst, Ordering::SeqCst);
+    }
+
+    pub fn cancel(&self) {
+        self.0.store(Self::CANCEL, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// `Err(PAUSED | CANCELLED)` once asked to stop.
+    pub fn check(&self) -> Result<(), String> {
+        match self.0.load(std::sync::atomic::Ordering::SeqCst) {
+            Self::PAUSE => Err(PAUSED.into()),
+            Self::CANCEL => Err(CANCELLED.into()),
+            _ => Ok(()),
+        }
+    }
+}
 
 /// Whether a file on disk is the published one: its SHA-256 matches.
 fn matches_published(path: &Path, sha256: &str) -> bool {

@@ -1,18 +1,132 @@
-//! Keeps the shared version-choice file in step with the launcher's settings, so an app's own
-//! update check knows when the launcher keeps it on another version. The file's format is
-//! craft-update's ([`craft_update::pins::Pins`]); its place is MoneyKeep's own ([`default_path`]).
+//! The shared version-choice file, kept in step with the launcher's settings so an app's own
+//! update check can know when the launcher keeps it on another version ([`default_path`]).
+//!
+//! The file is `{"apps": {"<id>": "Nightly" | {"Pinned": "<tag>"}}}`. Only the launcher writes
+//! it; apps read. The format is the one MoneyKeep Launcher inherited from its upstream, so a file
+//! from 0.1.0 or 0.1.1 reads the same.
 //!
 //! Invariants:
+//! - A missing, unreadable or damaged file means every app follows stable releases.
 //! - The launcher's settings are the source of truth for the apps it lists: an app absent from
 //!   them follows stable releases, so a readable entry for it in the file is removed.
-//! - An entry this launcher cannot read (written by a newer one) is kept as it is.
+//! - An entry this launcher cannot read (written by a newer one) counts as managed by the
+//!   launcher, never as stable, and is kept as it is on every save.
+//! - Choosing stable removes the app's entry, so the file only lists apps kept on something else.
 //! - The file is written only when something changed.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use craft_update::pins::{Pins, VersionTrack as SharedTrack};
 use keep_launcher_core::protocol::VersionTrack;
+use serde::{Deserialize, Serialize};
+
+/// Which published build an app follows, as the file records it. A pinned version never changes
+/// on its own.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SharedTrack {
+    #[default]
+    Stable,
+    Nightly,
+    Pinned(String),
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct File {
+    /// App id to its track, kept as raw values so entries from a newer launcher survive a save.
+    #[serde(default)]
+    apps: BTreeMap<String, serde_json::Value>,
+}
+
+/// The saved version choices.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Pins {
+    apps: BTreeMap<String, serde_json::Value>,
+}
+
+/// What an app's own update check should do.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Choice {
+    /// Follow stable releases: check and offer as usual.
+    Stable,
+    /// The launcher keeps this app on another track; the app offers nothing itself.
+    Managed(SharedTrack),
+    /// An entry this version cannot read; also left to the launcher.
+    Unknown,
+}
+
+impl Pins {
+    /// Reads `path`. A missing or damaged file reads as empty: every app follows stable releases.
+    pub fn load(path: &Path) -> Self {
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Self::default(),
+            Err(e) => {
+                log::warn!("couldn't read {} ({e}); every app follows stable releases", path.display());
+                return Self::default();
+            }
+        };
+        match serde_json::from_str::<File>(&text) {
+            Ok(file) => Self { apps: file.apps },
+            Err(e) => {
+                log::warn!("{} is damaged ({e}); every app follows stable releases", path.display());
+                Self::default()
+            }
+        }
+    }
+
+    /// Writes `path` in one step, so a reader never sees half a file.
+    pub fn save(&self, path: &Path) -> Result<(), String> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("couldn't create {} ({e})", dir.display()))?;
+        }
+        let file = File { apps: self.apps.clone() };
+        let text = serde_json::to_string_pretty(&file).map_err(|e| format!("couldn't encode the version choices ({e})"))?;
+        crate::paths::write_atomic(path, text.as_bytes())
+    }
+
+    /// What `app`'s own update check should do.
+    pub fn choice(&self, app: &str) -> Choice {
+        match self.apps.get(app) {
+            None => Choice::Stable,
+            Some(raw) => match serde_json::from_value::<SharedTrack>(raw.clone()) {
+                Ok(SharedTrack::Stable) => Choice::Stable,
+                Ok(track) => Choice::Managed(track),
+                Err(_) => Choice::Unknown,
+            },
+        }
+    }
+
+    /// The track `app` follows, when this version can read it.
+    pub fn track(&self, app: &str) -> Option<SharedTrack> {
+        match self.choice(app) {
+            Choice::Stable => Some(SharedTrack::Stable),
+            Choice::Managed(track) => Some(track),
+            Choice::Unknown => None,
+        }
+    }
+
+    /// Sets `app`'s track. Stable removes the entry.
+    pub fn set(&mut self, app: &str, track: &SharedTrack) {
+        match track {
+            SharedTrack::Stable => {
+                self.apps.remove(app);
+            }
+            other => {
+                if let Ok(raw) = serde_json::to_value(other) {
+                    self.apps.insert(app.to_string(), raw);
+                }
+            }
+        }
+    }
+
+    /// Every app with a track this version can read, stable ones excluded.
+    pub fn tracks(&self) -> impl Iterator<Item = (&str, SharedTrack)> {
+        self.apps
+            .iter()
+            .filter_map(|(id, raw)| serde_json::from_value(raw.clone()).ok().map(|t| (id.as_str(), t)))
+            .filter(|(_, track)| *track != SharedTrack::Stable)
+    }
+}
 
 /// Names a file to use in place of the default (absolute paths only). The launcher passes it to
 /// every app it starts, so an app whose home is redirected (tarball installs on Linux) still finds
@@ -146,7 +260,55 @@ pub fn sync(path: &Path, versions: &BTreeMap<String, VersionTrack>) -> Result<bo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use craft_update::pins::Choice;
+
+    fn pinned(tag: &str) -> SharedTrack {
+        SharedTrack::Pinned(tag.into())
+    }
+
+    #[test]
+    fn a_missing_or_damaged_file_means_every_app_follows_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("versions.json");
+        assert_eq!(Pins::load(&path).choice("moneykeep"), Choice::Stable);
+        std::fs::write(&path, "{ not json").unwrap();
+        assert_eq!(Pins::load(&path).choice("moneykeep"), Choice::Stable);
+        std::fs::write(&path, r#"{"apps":"wrong shape"}"#).unwrap();
+        assert_eq!(Pins::load(&path).choice("moneykeep"), Choice::Stable);
+    }
+
+    #[test]
+    fn choices_survive_a_save_and_only_the_named_app_is_held() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("versions.json");
+        let mut pins = Pins::default();
+        pins.set("moneykeep", &pinned("v0.1.0"));
+        pins.set("calckeep", &SharedTrack::Nightly);
+        pins.save(&path).unwrap();
+        let read = Pins::load(&path);
+        assert_eq!(read, pins);
+        assert_eq!(read.choice("moneykeep"), Choice::Managed(pinned("v0.1.0")));
+        assert_eq!(read.choice("calckeep"), Choice::Managed(SharedTrack::Nightly));
+        assert_eq!(read.choice("groupkeep"), Choice::Stable);
+        assert_eq!(read.tracks().count(), 2);
+    }
+
+    #[test]
+    fn a_file_from_0_1_1_reads_the_same() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("versions.json");
+        std::fs::write(&path, r#"{"apps":{"moneykeep":{"Pinned":"v0.1.0"},"calckeep":"Nightly","groupkeep":"Stable"}}"#).unwrap();
+        let pins = Pins::load(&path);
+        assert_eq!(pins.track("moneykeep"), Some(pinned("v0.1.0")));
+        assert_eq!(pins.track("calckeep"), Some(SharedTrack::Nightly));
+        assert_eq!(pins.choice("groupkeep"), Choice::Stable);
+        let listed: Vec<&str> = pins.tracks().map(|(id, _)| id).collect();
+        assert_eq!(listed, ["calckeep", "moneykeep"], "an explicit Stable entry is not listed");
+        let mut saved = pins.clone();
+        saved.set("form1099keep", &SharedTrack::Nightly);
+        saved.save(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains(r#""Pinned": "v0.1.0""#) && text.contains(r#""form1099keep": "Nightly""#), "{text}");
+    }
 
     fn versions(entries: &[(&str, VersionTrack)]) -> BTreeMap<String, VersionTrack> {
         entries.iter().map(|(id, t)| (id.to_string(), t.clone())).collect()
