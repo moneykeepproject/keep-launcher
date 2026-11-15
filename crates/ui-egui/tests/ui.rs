@@ -349,6 +349,65 @@ fn folder_harness(picked: Rc<RefCell<Option<String>>>) -> (Harness<'static, Opti
     (harness, sent)
 }
 
+/// On macOS the folder window is a sheet: Browse returns nothing at once and the chosen folder
+/// arrives on a later frame through `Host::picked_folder`, which fills the field then.
+#[test]
+fn a_folder_chosen_later_fills_the_field_when_it_arrives() {
+    struct LaterPicker {
+        asked: Rc<Cell<u32>>,
+        answer: Rc<RefCell<Option<String>>>,
+    }
+    impl Host for LaterPicker {
+        fn pick_folder(&mut self, _initial: Option<&str>) -> Option<String> {
+            self.asked.set(self.asked.get() + 1);
+            None
+        }
+        fn picked_folder(&mut self) -> Option<String> {
+            self.answer.borrow_mut().take()
+        }
+    }
+    keep_launcher_ui_egui::i18n::set_test_lang(keep_launcher_ui_egui::i18n::Lang::EN);
+    let mut backend = Some(Fake {
+        events: vec![
+            Event::Latest { app: "moneykeep".into(), latest: LatestRelease::Found(release("moneykeep", "0.6.0", NOW)), from: Origin::GitHub },
+            Event::Detected { app: "moneykeep".into(), installed: None },
+        ],
+        sent: Rc::default(),
+        manage: true,
+        pictures: Rc::default(),
+        asked: vec![],
+        clock: Rc::new(Cell::new(NOW)),
+    });
+    let asked = Rc::new(Cell::new(0));
+    let answer = Rc::new(RefCell::new(None));
+    let mut host = LaterPicker { asked: asked.clone(), answer: answer.clone() };
+    let mut h = test_harness_builder(egui::Theme::Dark).with_size(egui::vec2(1180.0, 900.0)).build_ui_state(
+        move |ui, state: &mut Option<LauncherUi>| {
+            if let Some(backend) = backend.take() {
+                *state = Some(ui_new(ui.ctx(), Box::new(backend), Settings { notify: false, ..Default::default() }));
+            }
+            if let Some(launcher) = state {
+                launcher.logic(ui.ctx(), &mut host);
+                launcher.ui(ui, &mut host);
+            }
+        },
+        None,
+    );
+    h.run_steps(8);
+    h.get_by_label("Settings").click();
+    h.run_steps(4);
+    h.get_by_label("Browse…").scroll_to_me();
+    h.run_steps(4);
+    h.get_by_label("Browse…").click();
+    h.run_steps(3);
+    assert_eq!(asked.get(), 1);
+    assert_eq!(h.state().as_ref().unwrap().settings.install_locations.root, None);
+    // The sheet answers.
+    *answer.borrow_mut() = Some("/Volumes/MoneyKeep Apps".into());
+    h.run_steps(3);
+    assert_eq!(h.state().as_ref().unwrap().settings.install_locations.root.as_deref(), Some("/Volumes/MoneyKeep Apps"));
+}
+
 fn install_commands(sent: &RefCell<Vec<Command>>) -> Vec<Command> {
     sent.borrow().iter().filter(|c| !matches!(c, Command::CheckForUpdates { .. })).cloned().collect()
 }

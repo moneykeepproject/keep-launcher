@@ -19,7 +19,7 @@ mod tray;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, channel, sync_channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TryRecvError, channel, sync_channel};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -490,6 +490,37 @@ struct DesktopHost {
     /// Settings asks once per app's package, and the macOS answer probes the disk. There are
     /// only a handful of distinct questions (format and architecture).
     default_folders: Vec<DefaultFolderAnswer>,
+    /// The answer of a folder window still open (macOS: a sheet that answers later).
+    picked: Option<Receiver<Option<String>>>,
+    /// Wakes the window when that answer arrives.
+    waker: Option<Arc<Waker>>,
+}
+
+/// Whether the folder window answers later (macOS) or in the same call (elsewhere). On macOS
+/// a blocking `rfd::FileDialog` runs `NSOpenPanel runModal` inside winit's event handler; the
+/// nested loop re-enters winit, which panics ("tried to handle event while another event is
+/// currently being handled") where the panic can't unwind, and the launcher aborts. So there
+/// the window is a sheet (`rfd::AsyncFileDialog`, which returns at once) and its answer comes
+/// through [`Host::picked_folder`].
+const FOLDER_ANSWER_LATER: bool = cfg!(target_os = "macos");
+
+/// Waits for `future` on the calling thread (a helper thread, never the window's).
+fn block_on<F: std::future::Future>(future: F) -> F::Output {
+    struct Unpark(std::thread::Thread);
+    impl std::task::Wake for Unpark {
+        fn wake(self: Arc<Self>) {
+            self.0.unpark();
+        }
+    }
+    let waker = std::task::Waker::from(Arc::new(Unpark(std::thread::current())));
+    let mut cx = std::task::Context::from_waker(&waker);
+    let mut future = std::pin::pin!(future);
+    loop {
+        if let std::task::Poll::Ready(out) = future.as_mut().poll(&mut cx) {
+            return out;
+        }
+        std::thread::park();
+    }
 }
 
 impl Host for DesktopHost {
@@ -532,11 +563,44 @@ impl Host for DesktopHost {
     }
 
     fn pick_folder(&mut self, initial: Option<&str>) -> Option<String> {
-        let mut dialog = rfd::FileDialog::new();
+        if !FOLDER_ANSWER_LATER {
+            let mut dialog = rfd::FileDialog::new();
+            if let Some(folder) = nearest_existing_folder(initial) {
+                dialog = dialog.set_directory(folder);
+            }
+            return dialog.pick_folder().and_then(|p| p.to_str().map(str::to_string));
+        }
+        if self.picked.is_some() {
+            // One folder window at a time: the sheet already open answers.
+            return None;
+        }
+        let mut dialog = rfd::AsyncFileDialog::new();
         if let Some(folder) = nearest_existing_folder(initial) {
             dialog = dialog.set_directory(folder);
         }
-        dialog.pick_folder().and_then(|p| p.to_str().map(str::to_string))
+        // The sheet opens now, on this (the window's) thread; a helper thread waits for it.
+        let shown = dialog.pick_folder();
+        let (answer, picked) = channel();
+        self.picked = Some(picked);
+        let waker = self.waker.clone();
+        std::thread::spawn(move || {
+            let folder = block_on(shown).and_then(|h| h.path().to_str().map(str::to_string));
+            let _ = answer.send(folder);
+            if let Some(w) = waker {
+                w.wake();
+            }
+        });
+        None
+    }
+
+    fn picked_folder(&mut self) -> Option<String> {
+        let answer = match self.picked.as_ref()?.try_recv() {
+            Ok(folder) => folder,
+            Err(TryRecvError::Empty) => return None,
+            Err(TryRecvError::Disconnected) => None,
+        };
+        self.picked = None;
+        answer
     }
 
     fn default_install_folder(&mut self, kind: keep_launcher_core::PackageKind, arch: Option<keep_launcher_core::Arch>) -> Option<String> {
@@ -595,7 +659,7 @@ impl Launcher {
             system_theme: system_theme::Monitor::default(),
             ui: LauncherUi::new(&windowless, backend, Settings::default()),
             tray: None,
-            host: DesktopHost { tray: false, quit: false, default_folders: Vec::new() },
+            host: DesktopHost { tray: false, quit: false, default_folders: Vec::new(), picked: None, waker: None },
             starts,
             windowless,
             run_again,
@@ -614,6 +678,7 @@ impl Launcher {
             self.restore_saved_settings(settings);
         }
         self.waker = Some(waker.clone());
+        self.host.waker = Some(waker.clone());
         let (wake, on_quit) = (waker.clone(), waker.clone());
         match tray::Tray::new(move || wake.wake(), move || on_quit.quit_from_tray()) {
             Ok(t) => self.tray = Some(t),

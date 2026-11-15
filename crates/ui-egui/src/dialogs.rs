@@ -289,6 +289,10 @@ impl LauncherUi {
     }
 
     pub(crate) fn folder_field(ui: &mut egui::Ui, folder: &mut String, default: Option<&str>, host: &mut dyn Host) {
+        // A Browse that answered later (macOS) fills the field when the answer arrives.
+        if let Some(selected) = host.picked_folder() {
+            *folder = selected;
+        }
         let label = ui.label(tl!("Install folder"));
         ui.add(
             egui::TextEdit::singleline(folder)

@@ -58,7 +58,15 @@ pub trait Host {
     fn reduce_motion(&self) -> bool {
         false
     }
+    /// Browse for a folder, starting at `initial`. `None` when cancelled, or when the answer
+    /// comes later through [`Host::picked_folder`] (macOS, where the folder window is a sheet:
+    /// a blocking one would run a modal loop inside the window's event handler and abort).
     fn pick_folder(&mut self, _initial: Option<&str>) -> Option<String> {
+        None
+    }
+    /// The folder chosen in a Browse that answers later (see [`Host::pick_folder`]). Asked every
+    /// frame a folder field is drawn; `Some` once, when the person has chosen.
+    fn picked_folder(&mut self) -> Option<String> {
         None
     }
     /// The folder a new install of this format goes inside when the person hasn't chosen one, so
