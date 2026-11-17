@@ -18,7 +18,8 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Every MoneyKeep App: (id = folder name, display name). Keep in step with `catalog::SUITE`.
-const APPS: &[(&str, &str)] = &[("moneykeep", "MoneyKeep"), ("calckeep", "CalcKeep"), ("groupkeep", "GroupKeep"), ("form1099keep", "Form1099Keep")];
+const APPS: &[(&str, &str)] =
+    &[("moneykeep", "MoneyKeep"), ("calckeep", "CalcKeep"), ("groupkeep", "GroupKeep"), ("form1099keep", "Form1099Keep"), ("sharekeep", "ShareKeep")];
 
 const DEFAULT_PORT: u16 = 8787;
 /// Marks a version folder whose build finished; anything without it is ignored and rebuilt.

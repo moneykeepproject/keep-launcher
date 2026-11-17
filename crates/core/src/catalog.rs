@@ -128,7 +128,7 @@ const fn app(id: &'static str, name: &'static str, tagline: &'static str, [color
 }
 
 /// The MoneyKeep Apps, in display order, then any community apps.
-pub const SUITE: [KeepApp; 4] = [
+pub const SUITE: [KeepApp; 5] = [
     KeepApp {
         programs: &["moneykeep-app"],
         ..app(
@@ -153,6 +153,13 @@ pub const SUITE: [KeepApp; 4] = [
         "Forms 1099-NEC and 1099-MISC",
         [[0x0f, 0x5e, 0x5c], [0x0f, 0x5e, 0x5c], [0x5f, 0xc9, 0xc4]],
         "moneykeepproject/form1099keep",
+    ),
+    app(
+        "sharekeep",
+        "ShareKeep",
+        "Shared household finances",
+        [[0x0f, 0x76, 0x6e], [0x0f, 0x76, 0x6e], [0x5e, 0xea, 0xd4]],
+        "moneykeepproject/sharekeep",
     ),
 ];
 
@@ -199,6 +206,7 @@ pub fn app_icon_png(id: &str) -> Option<&'static [u8]> {
         "calckeep" => include_bytes!("../../../assets/app-icons/calckeep.png"),
         "groupkeep" => include_bytes!("../../../assets/app-icons/groupkeep.png"),
         "form1099keep" => include_bytes!("../../../assets/app-icons/form1099keep.png"),
+        "sharekeep" => include_bytes!("../../../assets/app-icons/sharekeep.png"),
         _ => return None,
     })
 }
@@ -221,14 +229,14 @@ mod tests {
     fn open_runs_the_desktop_program() {
         // MoneyKeep's moneykeep.exe is its command line; "Open" must find moneykeep-app.exe.
         assert_eq!(KeepApp::by_id("moneykeep").unwrap().exe_names(), ["moneykeep-app"]);
-        for id in ["calckeep", "groupkeep", "form1099keep"] {
+        for id in ["calckeep", "groupkeep", "form1099keep", "sharekeep"] {
             assert_eq!(KeepApp::by_id(id).unwrap().exe_names(), [id]);
         }
     }
 
     #[test]
     fn suite_has_unique_ids() {
-        assert_eq!(SUITE.len(), 4);
+        assert_eq!(SUITE.len(), 5);
         let mut ids: Vec<_> = SUITE.iter().map(|a| a.id).collect();
         ids.sort_unstable();
         ids.dedup();

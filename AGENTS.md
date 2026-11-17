@@ -2,7 +2,7 @@
 
 MoneyKeep Launcher installs, updates and launches the **MoneyKeep Apps** ("MoneyKeep – Apps for
 Financial Management"). The catalog (`core::catalog`) has five apps: the four MoneyKeep Apps in
-`SUITE` (MoneyKeep, CalcKeep, GroupKeep and Form1099Keep) and MoneyKeep Launcher itself
+`SUITE` (MoneyKeep, CalcKeep, GroupKeep, Form1099Keep and ShareKeep) and MoneyKeep Launcher itself
 (`LAUNCHER`), described the same way so it can update itself. The catalog can also carry approved
 **community apps** made outside MoneyKeep and labelled as such; there are none today. It is
 written in **Rust only** (no JavaScript or TypeScript): the desktop

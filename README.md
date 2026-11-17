@@ -52,6 +52,7 @@ update is out. It is a small native app that can sit in your menu bar or system 
 | <img src="assets/app-icons/calckeep.png" alt="" width="32" height="32"> | **CalcKeep** | Financial calculators | [GitHub](https://github.com/moneykeepproject/calckeep) |
 | <img src="assets/app-icons/groupkeep.png" alt="" width="32" height="32"> | **GroupKeep** | Dividing group expenses | [GitHub](https://github.com/moneykeepproject/groupkeep) |
 | <img src="assets/app-icons/form1099keep.png" alt="" width="32" height="32"> | **Form1099Keep** | Forms 1099-NEC and 1099-MISC | [GitHub](https://github.com/moneykeepproject/form1099keep) |
+| <img src="assets/app-icons/sharekeep.png" alt="" width="32" height="32"> | **ShareKeep** | Shared household finances | [GitHub](https://github.com/moneykeepproject/sharekeep) |
 
 ## Features
 
@@ -133,7 +134,7 @@ portable zip's executable) and keeps the previous two runs as `keep-launcher.1.l
 
 Download the build for your computer from the newest release on the [releases page](https://github.com/moneykeepproject/keep-launcher/releases). Every release has a `SHA256SUMS.txt` to check the files against. `<ver>` is the version number, for example `0.1.0`.
 
-Version 0.1.2: [release notes](docs/release-notes/0.1.2.md) · [known limits](docs/known-limits.md).
+Version 0.1.3: [release notes](docs/release-notes/0.1.3.md) · [known limits](docs/known-limits.md).
 
 **Windows** (10 and 11)
 
@@ -221,7 +222,7 @@ nix run --impure github:nix-community/nixGL -- nix run github:moneykeepproject/k
 ### Installing your own builds
 
 To install and update the MoneyKeep apps from checkouts on your machine instead of GitHub, clone them
-next to this repo (`../moneykeep`, `../calckeep`, `../groupkeep`, `../form1099keep`) and run:
+next to this repo (`../moneykeep`, `../calckeep`, `../groupkeep`, `../form1099keep`, `../sharekeep`) and run:
 
 ```sh
 cargo xtask local sync      # git pull every app, build and package each new version into ../local-mirror

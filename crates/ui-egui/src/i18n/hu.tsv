@@ -168,6 +168,7 @@ moneykeep	Personal and small-business accounting	Könyvelés háztartásoknak é
 calckeep	Financial calculators	Pénzügyi kalkulátorok
 groupkeep	Dividing group expenses	Közös kiadások megosztása
 form1099keep	Forms 1099-NEC and 1099-MISC	1099-NEC és 1099-MISC nyomtatványok
+sharekeep	Shared household finances	Közös háztartási pénzügyek
 
 # Contextual: month abbreviations for date rendering
 month	Jan	jan.

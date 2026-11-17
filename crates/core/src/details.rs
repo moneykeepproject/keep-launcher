@@ -137,7 +137,7 @@ pub fn screenshot_within_budget(bytes: &[u8]) -> bool {
 }
 
 // From each app's README; edit as the apps take shape.
-pub const DETAILS: [AppDetails; 4] = [
+pub const DETAILS: [AppDetails; 5] = [
     AppDetails {
         id: "moneykeep",
         headline: "Accounting for households and small businesses.",
@@ -206,6 +206,21 @@ pub const DETAILS: [AppDetails; 4] = [
             shot("print", "Printing and e-filing"),
         ],
         platforms: "Windows, macOS, Linux",
+    },
+    AppDetails {
+        id: "sharekeep",
+        headline: "Shared money for partners, roommates and families who share a home.",
+        about: "Rent, bills and groceries split the way your household agrees: everyone adds expenses from their \
+                phone or computer, and ShareKeep keeps the balances, settles up each month and writes the statement.\n\n\
+                One computer at home is the household's hub. Nothing goes to the cloud: devices connect over the home Wi-Fi.",
+        features: &[
+            feature("Rules everyone approves", "Equal, percentages, shares, by income, by room and more, with live examples before anyone agrees."),
+            feature("Deposits and pots", "A security deposit, a utilities deposit or a shared pot that pays expenses directly."),
+            feature("Moving out", "A settlement for whoever leaves, prorated to the day."),
+            feature("Hyperbook", "An optional history chained so no one can quietly rewrite the past."),
+        ],
+        shots: &[shot("demo", "A household's agreement and its balances")],
+        platforms: "Windows, macOS, phones and PC browsers",
     },
 ];
 

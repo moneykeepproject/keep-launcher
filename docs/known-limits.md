@@ -1,7 +1,7 @@
 # Known limits
 
-What MoneyKeep Launcher 0.1.2 doesn't do yet. This list is updated with each release.
-For what it does do, see the [release notes](release-notes/0.1.2.md).
+What MoneyKeep Launcher 0.1.3 doesn't do yet. This list is updated with each release.
+For what it does do, see the [release notes](release-notes/0.1.3.md).
 
 ## Early software
 

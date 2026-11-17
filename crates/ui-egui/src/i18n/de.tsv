@@ -168,6 +168,7 @@ moneykeep	Personal and small-business accounting	Buchhaltung für Haushalte und 
 calckeep	Financial calculators	Finanzrechner
 groupkeep	Dividing group expenses	Gemeinsame Ausgaben aufteilen
 form1099keep	Forms 1099-NEC and 1099-MISC	Formulare 1099-NEC und 1099-MISC
+sharekeep	Shared household finances	Gemeinsame Haushaltsfinanzen
 
 # Contextual: month abbreviations for date rendering
 month	Jan	Jan.
